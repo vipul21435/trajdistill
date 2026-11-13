@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 
 from .model import Step, ToolCall, Trajectory
+from .patches import touches_tests
 
 # CSI sequences, OSC sequences (ended by BEL or ESC \), charset designations, then the
 # remaining two-character escapes.
@@ -30,17 +31,23 @@ _HOME = re.compile(
     + r"[A-Za-z0-9._-]+(?=[\\/])"
 )
 # Key-like strings, built from pieces so this file holds no literal secret-shaped text.
+# The first form must hold a digit and an upper-case letter, so CSS class names and other
+# lower-case identifiers of the same shape are left alone.
+_TOKEN = r"[A-Za-z0-9_-]"
 _KEY_PARTS = [
-    "s" + r"k-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}",
-    "gh" + r"[pousr]_[A-Za-z0-9]{30,}",
-    "github" + r"_pat_[A-Za-z0-9_]{30,}",
+    "s" + rf"k-(?={_TOKEN}*\d)(?={_TOKEN}*[A-Z]){_TOKEN}{{20,}}",
+    "gh" + r"[pousr]_[A-Za-z0-9]{36,}",
+    "github" + r"_pat_[A-Za-z0-9_]{60,}",
     "AK" + r"IA[0-9A-Z]{16}",
-    "h" + r"f_[A-Za-z0-9]{30,}",
-    "xo" + r"x[abprs]-[A-Za-z0-9-]{10,}",
+    "h" + r"f_[A-Za-z]{34,}",
+    "xo" + r"x[abprs]-[0-9]+-[A-Za-z0-9-]{10,}",
 ]
-_KEY = re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(_KEY_PARTS) + r")")
+_KEY = re.compile(r"(?<![A-Za-z0-9_.-])(?:" + "|".join(_KEY_PARTS) + r")")
+# A key block ends at its END line; without one it ends at a blank line (also a blank diff
+# line) or at the next diff header, so an unterminated block cannot swallow the rest.
 _PEM = re.compile(
-    "-----BEGIN [A-Z ]*PRIV" + "ATE KEY-----.*?(?:-----END [A-Z ]*PRIV" + "ATE KEY-----|\\Z)",
+    "-----BEGIN [A-Z ]*PRIV" + "ATE KEY-----.*?(?:-----END [A-Z ]*PRIV" + "ATE KEY-----"
+    + r"|(?=\n[ +-]?\n)|(?=\n(?:diff --git |--- |\+\+\+ |@@ ))|\Z)",
     re.DOTALL,
 )
 REDACTED = "[REDACTED]"
@@ -217,11 +224,14 @@ def clean(traj: Trajectory, cfg: CleanConfig) -> tuple[Trajectory, CleanStats]:
             collapsed.append(s)
         steps = collapsed
     patch = traj.patch
+    meta = dict(traj.meta)
     if cfg.redact:
+        # the test-file flag describes the patch as written, so take it before redacting
+        meta.setdefault("touches_tests", touches_tests(traj.patch))
         patch, n = redact(patch)
         stats["redactions"] += n
     out = replace(traj, steps=steps, system=run(traj.system, False), task=run(traj.task, False),
-                  patch=patch, meta=dict(traj.meta))
+                  patch=patch, meta=meta)
     if out != traj:
         stats["trajectories_changed"] += 1
     return out, CleanStats(stats)

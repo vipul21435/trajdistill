@@ -180,3 +180,37 @@ def test_clean_all_sums_stats() -> None:
     rows = [make_traj(observations=["a" * 50, "b", "c"]) for _ in range(3)]
     out, stats = clean_all(rows, CleanConfig(max_observation_chars=40))
     assert len(out) == 3 and stats.to_dict()["observations_shortened"] == 3
+
+
+def test_unterminated_key_block_stops_at_blank_line_or_diff_header() -> None:
+    begin = "-----BEGIN RSA PRIV" + "ATE KEY-----"
+    patch = (f"diff --git a/k.py b/k.py\n--- a/k.py\n+++ b/k.py\n@@ -0,0 +1,3 @@\n+K = '''{begin}\n"
+             "+MIIabc\n"
+             "diff --git a/test_numeric.py b/test_numeric.py\n--- a/test_numeric.py\n"
+             "+++ b/test_numeric.py\n@@ -1 +1 @@\n-a\n+b\n")
+    out, n = redact(patch)
+    assert n == 1 and "MIIabc" not in out
+    assert "diff --git a/test_numeric.py" in out and out.endswith("+b\n")
+    prose = f"{begin}\nMIIabc\n\nThe next paragraph stays."
+    assert redact(prose)[0] == "[REDACTED]\n\nThe next paragraph stays."
+
+
+def test_test_file_flag_comes_from_the_raw_patch() -> None:
+    from trajdistill.select import SelectConfig, select
+
+    begin = "-----BEGIN RSA PRIV" + "ATE KEY-----"
+    patch = (f"diff --git a/k.py b/k.py\n+K = '{begin}\n+MII\n"
+             "diff --git a/test_x.py b/test_x.py\n+++ b/test_x.py\n+b\n")
+    t = make_traj(patch=patch)
+    cleaned, _ = clean(t, CleanConfig(redact=True))
+    assert cleaned.meta["touches_tests"] is True
+    sel = select([cleaned], SelectConfig(test_patches="drop"))
+    assert sel.flagged_test_patches == 1 and sel.rows_out == 0
+
+
+def test_key_pattern_leaves_identifiers_of_the_same_shape() -> None:
+    css = "s" + "k-navigation-header-wrapper-item"
+    assert redact(f'<div class="{css}">')[1] == 0
+    assert redact("my-" + "s" + "k-" + "Ab12" * 8)[1] == 0  # part of a longer name
+    assert redact("h" + "f_" + "AutoModelForCausalLMWithValueHead")[1] == 0
+    assert redact(OPENAI_LIKE)[1] == 1

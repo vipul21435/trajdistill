@@ -162,8 +162,10 @@ def select(trajs: Iterable[Trajectory], config: SelectConfig | None = None,
 
     flagged = 0
     for t in rows:
-        t.meta["touches_tests"] = touches_tests(t.patch)
-        flagged += t.meta["touches_tests"]
+        # cleaning records the flag from the raw patch before redacting it
+        if "touches_tests" not in t.meta:
+            t.meta["touches_tests"] = touches_tests(t.patch)
+        flagged += bool(t.meta["touches_tests"])
 
     def dedupe(ts: list[Trajectory]) -> tuple[list[Trajectory], int]:
         seen: set[Any] = set()

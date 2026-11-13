@@ -223,7 +223,10 @@ The default funnel over the 3,000 rows took 23 seconds here.
   and step samples do not mark which turns to train on: the target is the last turn, and masking earlier
   turns is left to the trainer.
 - Redaction is pattern based. It misses secrets without a known prefix and a home directory written without a
-  following path (`cd /home/<name>`).
+  following path (`cd /home/<name>`). It over-matches too: a web path under `/home/` (`GET /home/<page>/...`)
+  becomes `~/...`, and a long identifier that starts with one of the key prefixes and mixes digits and capitals
+  is replaced. An unterminated private-key block is redacted up to the next blank line or diff header. The
+  test-file flag is taken from the patch before redaction.
 - Tokens are a character estimate unless tiktoken is installed; the estimate is not any model's tokenizer.
 - The sample above is 3.7 % of the dataset in runs of 25 neighbouring rows, which group runs of the same
   instance; its numbers describe that sample, not the whole dataset.
