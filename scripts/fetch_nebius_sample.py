@@ -3,7 +3,8 @@
 Rows come from the Hugging Face dataset viewer API in short runs at seeded random offsets, so
 the sample spreads over the whole split instead of the first few repositories. The
 ``eval_logs`` column is dropped to save space. Requests are paced and retried on HTTP 429;
-an interrupted run resumes from the runs already saved next to the output. Nothing fetched
+an interrupted run resumes from the runs already saved next to the output, which
+are removed once the sample is written. Nothing fetched
 here is committed.
 
     python scripts/fetch_nebius_sample.py --rows 3000 --seed 0 --out data/nebius-sample.jsonl.gz
@@ -83,6 +84,9 @@ def main() -> None:
             for line in (parts / f"{off:07d}.jsonl").read_text(encoding="utf-8").splitlines():
                 fh.write(line + "\n")
                 written += 1
+    for part in parts.glob("*.jsonl"):
+        part.unlink()
+    parts.rmdir()
     print(f"wrote {written} of {total} rows to {a.out}")
 
 
