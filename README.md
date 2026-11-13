@@ -161,9 +161,12 @@ composition report.
 
 ## Results on real public data
 
-Data: 3,000 rows of the `nebius/SWE-agent-trajectories` train split (80,036 rows; licence CC BY 4.0 on its
-card), fetched through the Hugging Face dataset viewer API as 120 runs of 25 consecutive rows at seeded
-random offsets, without the `eval_logs` column. The sample holds 245 instances from 179 repositories,
+Data: 3,000 rows of the `nebius/SWE-agent-trajectories` train split (80,036 rows). Its card licenses the
+dataset under CC BY 4.0 and adds two notes: respect the licence of each repository an instance is based on
+(listed per instance in `nebius/SWE-bench-extra`), and anyone who intends to use the outputs of these models
+must comply with the Llama 3.1 License, which matters for training on these trajectories. The rows were
+fetched through the Hugging Face dataset viewer API as 120 runs of 25 consecutive rows at seeded random
+offsets, without the `eval_logs` column. The sample holds 245 instances from 179 repositories,
 81,802 steps, and runs of three models (`swe-agent-llama-70b` 2,819, `-8b` 141, `-405b` 40). No trajectory
 is committed here.
 

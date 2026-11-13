@@ -1,4 +1,8 @@
-"""Fetch a seeded sample of rows from nebius/SWE-agent-trajectories (CC BY 4.0, see its card).
+"""Fetch a seeded sample of rows from nebius/SWE-agent-trajectories.
+
+The card licenses the dataset under CC BY 4.0, asks users to respect the licence of each
+repository an instance is based on, and says that using the outputs of these models requires
+complying with the Llama 3.1 License.
 
 Rows come from the Hugging Face dataset viewer API in short runs at seeded random offsets, so
 the sample spreads over the whole split instead of the first few repositories. The
