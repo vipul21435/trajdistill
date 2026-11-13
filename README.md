@@ -261,6 +261,9 @@ loaded laptop (`/usr/bin/time -l`); timings vary with load.
 - [datasieve](https://github.com/vipul21435/datasieve) deduplicates training data; trajdistill only drops
   exact and same-action duplicates.
 - [contamscan](https://github.com/vipul21435/contamscan) checks benchmark contamination by n-gram overlap.
+- [chatconv](https://github.com/vipul21435/chatconv): converts chat datasets between formats and reports what each conversion loses.
+- [hunkfix](https://github.com/vipul21435/hunkfix): checks and repairs the unified diffs that language models write.
+- [divscore](https://github.com/vipul21435/divscore): diversity of a text dataset measured at a fixed budget of tokens or texts.
 
 References: John Yang et al., "SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering",
 2024, https://arxiv.org/abs/2405.15793. Jiayi Pan et al., "Training Software Engineering Agents and Verifiers
