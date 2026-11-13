@@ -154,9 +154,10 @@ with the model it trains. R2E-Gym (Jain et al. 2025) curates executable environm
 open-weight agents. The write-up that accompanies the nebius dataset describes its own filtering of
 successful trajectories: drop those with clearly incorrect actions (malformed responses, tool misuse,
 linter-triggering errors), remove duplicate trajectories per problem keeping unique action sequences, and
-keep only the 30 shortest per problem. `--drop-failed`, `--dedupe-key actions` and
-`--per-instance shortest -k 30` correspond to those steps; trajdistill adds the counts and the composition
-report.
+keep only the 30 shortest per problem. `--dedupe-key actions` and `--per-instance shortest -k 30`
+correspond to the second and third steps. `--drop-failed` is not the first: it deletes the failed steps and
+keeps the trajectory, where the write-up excludes the whole trajectory. trajdistill adds the counts and the
+composition report.
 
 ## Results on real public data
 
