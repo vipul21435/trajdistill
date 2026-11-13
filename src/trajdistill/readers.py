@@ -116,12 +116,20 @@ def from_messages_row(row: dict[str, Any], source: str = "messages") -> Trajecto
         if role == "system":
             system_parts.append(text)
         elif role == "assistant":
-            steps.append(Step(content=text, tool_calls=_tool_calls(m.get("tool_calls"))))
+            calls = _tool_calls(m.get("tool_calls"))
+            legacy = m.get("function_call")
+            if isinstance(legacy, dict):  # the older single-call field
+                calls.append(ToolCall(name=str(legacy.get("name", "")),
+                                      arguments=_arguments_text(legacy.get("arguments", {}))))
+            steps.append(Step(content=text, tool_calls=calls))
         elif role in ("user", "tool", "function"):
             if not steps:
                 task_parts.append(text)
             else:
-                steps[-1].observations.append(text)
+                step = steps[-1]
+                step.observations.append(text)
+                step.reply_roles.append(role)
+                step.reply_ids.append(str(m.get("tool_call_id", "") or ""))
         else:
             raise FormatError(f"unknown role {role!r}")
     instance_id = str(_first(row, ("instance_id",), "") or _first(row, ("id",), ""))

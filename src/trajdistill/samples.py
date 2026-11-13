@@ -4,12 +4,14 @@ Two output styles:
 
 - ``openai``: ``{"messages": [...]}`` with ``system``, ``user``, ``assistant`` and, when the
   source has tool calls, ``assistant.tool_calls`` and ``tool`` replies carrying
-  ``tool_call_id``. Observations of text-command agents become ``user`` turns.
+  ``tool_call_id``, matched to their call by id when the source gives one. User turns stay
+  ``user`` turns, and observations of text-command agents become ``user`` turns.
 - ``sharegpt``: ``{"conversations": [{"from": ..., "value": ...}]}`` with the roles
   ``system``, ``human``, ``gpt``, ``function_call`` and ``observation``. Model turns and
   environment turns alternate, so a step with tool calls becomes one ``function_call`` turn
-  (its accompanying text is not kept; the count is reported) and a missing reply becomes an
-  empty ``human`` turn.
+  (its accompanying text is not kept; the count is reported), a user turn that follows tool
+  replies joins the ``observation`` turn (counted too), and a missing reply becomes an empty
+  ``human`` turn.
 
 Two granularities: one sample per trajectory, or one per step (context up to step t, target
 step t) under a token budget that drops the oldest steps first and says so in a short note.
@@ -48,6 +50,41 @@ def _maybe_json(text: str) -> Any:
         return text
 
 
+def match_replies(step: Step) -> tuple[list[str], list[str]]:
+    """Pair a tool-calling step's replies with its calls.
+
+    Tool replies go to the call with the same ``tool_call_id``, the rest to the remaining
+    calls in order; replies beyond the number of calls join the last call. ``user`` replies
+    are returned separately. Returns one text per call, and the user texts.
+    """
+    n = len(step.tool_calls)
+    per_call: list[list[str]] = [[] for _ in range(n)]
+    tool = []
+    users = []
+    for k in range(len(step.observations)):
+        role, rid, text = step.reply(k)
+        if role == "user":
+            users.append(text)
+        else:
+            tool.append((rid, text))
+    used = [False] * len(tool)
+    for j, c in enumerate(step.tool_calls):
+        if not c.id:
+            continue
+        for k, (rid, text) in enumerate(tool):
+            if not used[k] and rid == c.id:
+                per_call[j].append(text)
+                used[k] = True
+                break
+    rest = [text for k, (_, text) in enumerate(tool) if not used[k]]
+    free = [j for j in range(n) if not per_call[j]]
+    for j, text in zip(free, rest, strict=False):
+        per_call[j].append(text)
+    if n:
+        per_call[n - 1].extend(rest[len(free):])
+    return ["\n".join(t) for t in per_call], users
+
+
 def _openai_step(step: Step, i: int, with_reply: bool) -> list[Msg]:
     msg: Msg = {"role": "assistant", "content": step.content}
     if step.tool_calls:
@@ -60,13 +97,11 @@ def _openai_step(step: Step, i: int, with_reply: bool) -> list[Msg]:
     if not with_reply:
         return out
     if step.tool_calls:
-        obs = list(step.observations)
-        n = len(step.tool_calls)
-        if len(obs) > n:  # extra replies go with the last call
-            obs = obs[: n - 1] + ["\n".join(obs[n - 1:])]
-        obs += [""] * (n - len(obs))
+        per_call, users = match_replies(step)
         for j, c in enumerate(step.tool_calls):
-            out.append({"role": "tool", "tool_call_id": _call_id(i, j, c.id), "content": obs[j]})
+            out.append({"role": "tool", "tool_call_id": _call_id(i, j, c.id),
+                        "content": per_call[j]})
+        out.extend({"role": "user", "content": u} for u in users)
     elif step.observations:
         out.append({"role": "user", "content": step.observation})
     return out
@@ -77,7 +112,9 @@ def _sharegpt_step(step: Step, with_reply: bool) -> list[Msg]:
         calls = [{"name": c.name, "arguments": _maybe_json(c.arguments)} for c in step.tool_calls]
         value = json.dumps(calls[0] if len(calls) == 1 else calls, ensure_ascii=False)
         out = [{"from": "function_call", "value": value}]
-        reply = {"from": "observation", "value": step.observation}
+        per_call, users = match_replies(step)
+        # turns alternate, so a user turn after the tool replies joins the observation turn
+        reply = {"from": "observation", "value": "\n\n".join(["\n".join(per_call), *users])}
     else:
         out = [{"from": "gpt", "value": step.content}]
         reply = {"from": "human", "value": step.observation}
@@ -133,6 +170,7 @@ class ConvertStats:
     skipped_over_budget: int = 0
     steps_omitted: int = 0
     tool_call_text_dropped: int = 0
+    user_turns_merged: int = 0
     tokens: int = 0
 
     def to_dict(self) -> dict[str, int]:
@@ -230,4 +268,6 @@ def build_samples(trajs: Iterable[Trajectory], style: str = "openai",
             if style == "sharegpt":
                 st.tool_call_text_dropped += sum(
                     1 for s in traj.steps[start:t + 1] if s.tool_calls and s.content.strip())
+                st.user_turns_merged += sum(
+                    1 for s in traj.steps[start:t] if s.tool_calls and "user" in s.reply_roles)
             yield _record(traj, msgs, style, bare, None if granularity == "trajectory" else t)

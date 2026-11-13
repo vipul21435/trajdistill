@@ -200,6 +200,8 @@ def clean(traj: Trajectory, cfg: CleanConfig) -> tuple[Trajectory, CleanStats]:
             tool_calls=calls,
             action=run(s.action, False),
             failed=s.failed,
+            reply_roles=list(s.reply_roles),
+            reply_ids=list(s.reply_ids),
         ))
     if cfg.drop_failed:
         compiled = [re.compile(p) for p in cfg.failure_patterns]

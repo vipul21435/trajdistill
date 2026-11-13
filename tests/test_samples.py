@@ -154,3 +154,66 @@ def test_conversation_note_and_validation() -> None:
     for kwargs in (dict(style="xml"), dict(granularity="token"), dict(context_budget=0)):
         with pytest.raises(ValueError):
             list(build_samples([t], **kwargs))
+
+
+SWAPPED = {
+    "instance_id": "o__r-5",
+    "messages": [
+        {"role": "user", "content": "Fix it."},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "A", "type": "function", "function": {"name": "run", "arguments": "{}"}},
+            {"id": "B", "type": "function", "function": {"name": "view", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "B", "content": "result of B"},
+        {"role": "tool", "tool_call_id": "A", "content": "result of A"},
+        {"role": "user", "content": "now also do Z"},
+        {"role": "assistant", "content": "Done."},
+    ],
+}
+
+
+def test_replies_are_matched_by_id_and_user_turns_kept() -> None:
+    from trajdistill.readers import from_messages_row
+
+    t = from_messages_row(SWAPPED)
+    assert t.steps[0].reply_roles == ["tool", "tool", "user"]
+    assert t.steps[0].reply_ids == ["B", "A", ""]
+    (rec,) = build_samples([t])
+    m = rec["messages"]
+    assert roles(m) == ["user", "assistant", "tool", "tool", "user", "assistant"]
+    assert {x["tool_call_id"]: x["content"] for x in m[2:4]} == {"A": "result of A",
+                                                                "B": "result of B"}
+    assert m[4]["content"] == "now also do Z"
+    stats = ConvertStats()
+    (sg,) = build_samples([t], style="sharegpt", stats=stats)
+    obs = sg["conversations"][2]
+    assert obs["from"] == "observation"
+    assert obs["value"] == "result of A\nresult of B\n\nnow also do Z"
+    assert stats.user_turns_merged == 1
+
+
+def test_legacy_function_call_is_read() -> None:
+    from trajdistill.readers import from_messages_row
+
+    row = {"instance_id": "o__r-6", "messages": [
+        {"role": "user", "content": "Go."},
+        {"role": "assistant", "content": None,
+         "function_call": {"name": "grep", "arguments": {"pattern": "x"}}},
+        {"role": "function", "name": "grep", "content": "match"},
+        {"role": "assistant", "content": "ok"}]}
+    t = from_messages_row(row)
+    assert [c.name for c in t.steps[0].tool_calls] == ["grep"]
+    (rec,) = build_samples([t])
+    m = rec["messages"]
+    assert m[1]["tool_calls"][0]["function"] == {"name": "grep", "arguments": '{"pattern": "x"}'}
+    assert m[2] == {"role": "tool", "tool_call_id": "call_0_0", "content": "match"}
+
+
+def test_reply_fields_survive_native_roundtrip_and_cleaning() -> None:
+    from trajdistill.clean import CleanConfig, clean
+    from trajdistill.readers import from_messages_row
+
+    t = from_messages_row(SWAPPED)
+    back = Trajectory.from_dict(json.loads(json.dumps(t.to_dict())))
+    assert back == t
+    cleaned, _ = clean(t, CleanConfig(strip_ansi=True))
+    assert cleaned.steps[0].reply_ids == ["B", "A", ""]

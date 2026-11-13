@@ -37,6 +37,8 @@ class Step:
     fenced command). ``observations`` holds one entry per tool call when the source has tool
     calls, otherwise a single entry. ``action`` is the canonical action string used for loop
     detection; when empty it is derived from the tool calls or the last fenced block.
+    ``reply_roles`` and ``reply_ids`` run alongside ``observations`` when the source says who
+    replied (``tool``, ``user``, ``function``) and to which call; they are empty otherwise.
     """
 
     content: str = ""
@@ -44,6 +46,8 @@ class Step:
     tool_calls: list[ToolCall] = field(default_factory=list)
     action: str = ""
     failed: bool = False
+    reply_roles: list[str] = field(default_factory=list)
+    reply_ids: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.action:
@@ -60,6 +64,8 @@ class Step:
             "observations": list(self.observations),
             "tool_calls": [c.to_dict() for c in self.tool_calls],
             "failed": self.failed,
+            "reply_roles": list(self.reply_roles),
+            "reply_ids": list(self.reply_ids),
         }
 
     @classmethod
@@ -70,7 +76,15 @@ class Step:
             tool_calls=[ToolCall.from_dict(c) for c in d.get("tool_calls", [])],
             action=str(d.get("action", "")),
             failed=bool(d.get("failed", False)),
+            reply_roles=[str(r) for r in d.get("reply_roles", [])],
+            reply_ids=[str(r) for r in d.get("reply_ids", [])],
         )
+
+    def reply(self, k: int) -> tuple[str, str, str]:
+        """``(role, tool_call_id, text)`` of reply ``k``; role and id are "" when unknown."""
+        role = self.reply_roles[k] if k < len(self.reply_roles) else ""
+        rid = self.reply_ids[k] if k < len(self.reply_ids) else ""
+        return role, rid, self.observations[k]
 
 
 @dataclass
@@ -166,6 +180,13 @@ def repo_from_instance(instance_id: str) -> str:
     return head
 
 
+def _step_payload(s: Step) -> list[Any]:
+    out: list[Any] = [s.content, s.observations, [c.to_dict() for c in s.tool_calls]]
+    if any(s.reply_roles) or any(s.reply_ids):  # only then, so other formats keep their ids
+        out += [s.reply_roles, s.reply_ids]
+    return out
+
+
 def content_hash(traj: Trajectory) -> str:
     """Hash of everything that defines the run (not its id or source format)."""
     payload = {
@@ -176,9 +197,7 @@ def content_hash(traj: Trajectory) -> str:
         "patch": traj.patch,
         "system": traj.system,
         "task": traj.task,
-        "steps": [
-            [s.content, s.observations, [c.to_dict() for c in s.tool_calls]] for s in traj.steps
-        ],
+        "steps": [_step_payload(s) for s in traj.steps],
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
