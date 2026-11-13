@@ -1,4 +1,4 @@
-"""Command line: ``trajdistill select`` and ``trajdistill funnel``."""
+"""Command line: ``trajdistill select``, ``funnel``, ``convert`` and ``split``."""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import __version__
-from .funnel import funnel_table
-from .readers import FORMATS, FormatError, read_path, write_native
+from .clean import DEFAULT_FAILURE_PATTERNS, CleanConfig, clean_all
+from .funnel import report_text, run_pipeline
+from .readers import FORMATS, FormatError, iter_jsonl, read_path, write_jsonl, write_native
+from .samples import GRANULARITIES, STYLES, ConvertStats, build_samples
 from .select import (
     DEDUPE_KEYS,
     LOOP_KEYS,
@@ -19,15 +21,43 @@ from .select import (
     PER_INSTANCE_MODES,
     TEST_PATCH_MODES,
     SelectConfig,
-    Selection,
-    select,
 )
+from .split import SPLIT_BY, split_records
 from .tokens import DEFAULT_CHARS_PER_TOKEN, TokenCounter
 
 
 def _add_input(p: argparse.ArgumentParser) -> None:
-    p.add_argument("input", help="a JSONL/JSON file, a .traj file, or a directory of .traj files")
+    p.add_argument("input", help="a JSONL/JSON file (optionally .gz), a .traj file, or a "
+                                 "directory of .traj files")
     p.add_argument("--format", default="auto", choices=FORMATS, help="input format (default: auto)")
+
+
+def _add_tokens(p: argparse.ArgumentParser) -> None:
+    t = p.add_argument_group("token counting")
+    t.add_argument("--tokenizer", choices=("chars", "tiktoken"), default="chars",
+                   help="character estimate (default) or tiktoken (needs the tiktoken extra)")
+    t.add_argument("--chars-per-token", type=float, default=DEFAULT_CHARS_PER_TOKEN)
+
+
+def _add_cleaning(p: argparse.ArgumentParser) -> None:
+    c = p.add_argument_group("cleaning (applied before the filters, all off by default)")
+    c.add_argument("--clean", action="store_true",
+                   help="shorthand for --strip-ansi --redact --normalise-whitespace "
+                        "--collapse-repeats")
+    c.add_argument("--strip-ansi", action="store_true", help="remove ANSI escape codes")
+    c.add_argument("--redact", action="store_true",
+                   help="replace key-like strings and home directories")
+    c.add_argument("--max-observation-chars", type=int, default=None, metavar="N",
+                   help="keep the head and tail of longer observations around an elision marker")
+    c.add_argument("--head-fraction", type=float, default=0.5,
+                   help="share of a shortened observation taken from its start (default: 0.5)")
+    c.add_argument("--normalise-whitespace", action="store_true")
+    c.add_argument("--collapse-repeats", action="store_true",
+                   help="merge consecutive steps with the same action and observation")
+    c.add_argument("--drop-failed", action="store_true",
+                   help="drop steps whose call failed (the retry that follows is kept)")
+    c.add_argument("--failure-pattern", action="append", default=None, metavar="REGEX",
+                   help="what marks a failed step (repeatable; replaces the defaults)")
 
 
 def _add_filters(p: argparse.ArgumentParser) -> None:
@@ -60,12 +90,9 @@ def _add_filters(p: argparse.ArgumentParser) -> None:
     g.add_argument("--max-per-repo", type=int, default=None,
                    help="cap on trajectories per repository (spread across instances)")
     g.add_argument("--seed", type=int, default=0)
-    t = p.add_argument_group("token counting")
-    t.add_argument("--tokenizer", choices=("chars", "tiktoken"), default="chars")
-    t.add_argument("--chars-per-token", type=float, default=DEFAULT_CHARS_PER_TOKEN)
 
 
-def _config(a: argparse.Namespace) -> SelectConfig:
+def _select_config(a: argparse.Namespace) -> SelectConfig:
     return SelectConfig(
         dedupe=not a.no_dedupe,
         dedupe_key=a.dedupe_key,
@@ -85,50 +112,114 @@ def _config(a: argparse.Namespace) -> SelectConfig:
     )
 
 
-def _run_select(a: argparse.Namespace) -> Selection:
-    counter = TokenCounter(a.tokenizer, chars_per_token=a.chars_per_token)
-    return select(read_path(a.input, a.format), _config(a), counter)
+def _clean_config(a: argparse.Namespace) -> CleanConfig:
+    return CleanConfig(
+        strip_ansi=a.strip_ansi or a.clean,
+        redact=a.redact or a.clean,
+        max_observation_chars=a.max_observation_chars,
+        head_fraction=a.head_fraction,
+        normalise_whitespace=a.normalise_whitespace or a.clean,
+        drop_failed=a.drop_failed,
+        failure_patterns=tuple(a.failure_pattern or DEFAULT_FAILURE_PATTERNS),
+        collapse_repeats=a.collapse_repeats or a.clean,
+    )
+
+
+def _counter(a: argparse.Namespace) -> TokenCounter:
+    return TokenCounter(a.tokenizer, chars_per_token=a.chars_per_token)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="trajdistill",
-        description="Select and convert coding-agent trajectories, counting every filter.")
+        description="Select, clean and convert coding-agent trajectories, counting every filter.")
     parser.add_argument("--version", action="version", version=f"trajdistill {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("select", help="filter trajectories and write the survivors as JSONL")
+    s = sub.add_parser("select", help="clean and filter trajectories, write the survivors")
     _add_input(s)
-    s.add_argument("-o", "--output", required=True, help="output JSONL (native format)")
-    s.add_argument("--report", help="also write the funnel as JSON to this path")
+    s.add_argument("-o", "--output", required=True, help="output JSONL of trajectories")
+    s.add_argument("--report", help="also write the full funnel report as JSON to this path")
+    _add_cleaning(s)
     _add_filters(s)
+    _add_tokens(s)
 
-    f = sub.add_parser("funnel", help="print how many trajectories each filter removes")
+    f = sub.add_parser("funnel", help="print what cleaning and each filter would change")
     _add_input(f)
-    f.add_argument("--json", action="store_true", help="print the funnel as JSON")
+    f.add_argument("--json", action="store_true", help="print the report as JSON")
+    _add_cleaning(f)
     _add_filters(f)
+    _add_tokens(f)
+
+    c = sub.add_parser("convert", help="turn trajectories into chat training samples")
+    _add_input(c)
+    c.add_argument("-o", "--output", required=True, help="output JSONL of samples")
+    c.add_argument("--to", choices=STYLES, default="openai", help="sample style (default: openai)")
+    c.add_argument("--granularity", choices=GRANULARITIES, default="trajectory",
+                   help="one sample per trajectory, or one per step (default: trajectory)")
+    c.add_argument("--context-budget", type=int, default=None, metavar="TOKENS",
+                   help="step samples only: drop the oldest steps until the sample fits")
+    c.add_argument("--bare", action="store_true",
+                   help="write only messages/conversations, without id, instance and repo")
+    _add_cleaning(c)
+    _add_tokens(c)
+
+    p = sub.add_parser("split", help="split a JSONL of trajectories or samples into train/val")
+    p.add_argument("input", help="JSONL (optionally .gz) whose records carry instance_id")
+    p.add_argument("--train", required=True, help="output JSONL for training")
+    p.add_argument("--val", required=True, help="output JSONL for validation")
+    p.add_argument("--by", choices=SPLIT_BY, default="instance",
+                   help="keep each instance or each repository on one side (default: instance)")
+    p.add_argument("--val-fraction", type=float, default=0.1)
+    p.add_argument("--seed", type=int, default=0)
     return parser
+
+
+def _cmd_select(a: argparse.Namespace) -> int:
+    rep = run_pipeline(read_path(a.input, a.format), _clean_config(a), _select_config(a),
+                       _counter(a))
+    if a.command == "funnel":
+        print(json.dumps(rep.to_dict(), indent=2) if a.json else report_text(rep))
+        return 0
+    write_native(rep.kept, a.output)
+    if a.report:
+        Path(a.report).write_text(json.dumps(rep.to_dict(), indent=2) + "\n", encoding="utf-8")
+    print(report_text(rep), file=sys.stderr)
+    return 0
+
+
+def _cmd_convert(a: argparse.Namespace) -> int:
+    trajs, cstats = clean_all(read_path(a.input, a.format), _clean_config(a))
+    stats = ConvertStats()
+    write_jsonl(build_samples(trajs, style=a.to, granularity=a.granularity,
+                              context_budget=a.context_budget, counter=_counter(a),
+                              bare=a.bare, stats=stats), a.output)
+    out = stats.to_dict()
+    changed = {k: v for k, v in cstats.to_dict().items() if v}
+    if changed:
+        out["cleaning"] = changed
+    print(json.dumps(out), file=sys.stderr)
+    return 0
+
+
+def _cmd_split(a: argparse.Namespace) -> int:
+    train, val, info = split_records(iter_jsonl(a.input), by=a.by, val_fraction=a.val_fraction,
+                                     seed=a.seed)
+    write_jsonl(train, a.train)
+    write_jsonl(val, a.val)
+    print(json.dumps(info.to_dict()), file=sys.stderr)
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    handlers = {"select": _cmd_select, "funnel": _cmd_select, "convert": _cmd_convert,
+                "split": _cmd_split}
     try:
-        sel = _run_select(args)
+        return handlers[args.command](args)
     except (FormatError, ValueError, OSError, RuntimeError) as exc:
         print(f"trajdistill: error: {exc}", file=sys.stderr)
         return 2
-    if args.command == "select":
-        write_native(sel.kept, args.output)
-        if args.report:
-            Path(args.report).write_text(json.dumps(sel.to_dict(), indent=2) + "\n",
-                                         encoding="utf-8")
-        print(funnel_table(sel), file=sys.stderr)
-        return 0
-    if args.json:
-        print(json.dumps(sel.to_dict(), indent=2))
-    else:
-        print(funnel_table(sel))
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
