@@ -106,3 +106,11 @@ def test_example_file_runs(capsys) -> None:
     data = json.loads(capsys.readouterr().out)
     assert data["funnel"]["rows_in"] == 21
     assert data["before"]["exact_duplicates"] == 1
+
+
+def test_pipeline_example_runs(capsys) -> None:
+    import runpy
+
+    runpy.run_path(str(EXAMPLE.with_name("pipeline.py")), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "rows in: 21" in out and "'shared_instances': 0" in out
