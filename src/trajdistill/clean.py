@@ -75,7 +75,10 @@ class CleanConfig:
             raise ValueError("head_fraction must be between 0 and 1")
         self.failure_patterns = tuple(self.failure_patterns)
         for p in self.failure_patterns:
-            re.compile(p)
+            try:
+                re.compile(p)
+            except re.error as exc:
+                raise ValueError(f"bad failure pattern {p!r}: {exc}") from None
 
     @property
     def active(self) -> bool:

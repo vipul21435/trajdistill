@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import gzip
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
@@ -224,23 +225,54 @@ def _open_text(path: Path, mode: str = "r") -> IO[str]:
     return path.open(mode, encoding="utf-8")
 
 
-def _iter_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Yield JSON objects from a JSONL file or a JSON list, either one optionally gzipped."""
+def _iter_records(path: Path) -> Iterator[tuple[str, Any]]:
+    """Yield ``(position, record)`` from a JSONL file or a JSON list, optionally gzipped."""
     with _open_text(path) as fh:
         head = fh.read(1)
         while head and head.isspace():
             head = fh.read(1)
         fh.seek(0)
         if head == "[":
-            yield from json.load(fh)
+            try:
+                data = json.load(fh)
+            except json.JSONDecodeError as exc:
+                raise FormatError(f"{path}: invalid JSON ({exc.msg})") from None
+            for i, row in enumerate(data, 1):
+                yield f"{path} item {i}", row
             return
         for lineno, line in enumerate(fh, 1):
             if not line.strip():
                 continue
             try:
-                yield json.loads(line)
+                yield f"{path}:{lineno}", json.loads(line)
             except json.JSONDecodeError as exc:
                 raise FormatError(f"{path}:{lineno}: invalid JSON ({exc.msg})") from None
+
+
+@dataclass
+class ReadStats:
+    """What a read saw: records read and records skipped because they cannot be written."""
+
+    rows: int = 0
+    skipped_unencodable: int = 0
+
+
+def _encodable(obj: Any) -> bool:
+    """False when the record holds text (a lone surrogate) that UTF-8 cannot encode."""
+    try:
+        json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _parse(where: str, fn: Callable[[], Trajectory]) -> Trajectory:
+    try:
+        return fn()
+    except FormatError as exc:
+        raise FormatError(f"{where}: {exc}") from None
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise FormatError(f"{where}: cannot read record ({type(exc).__name__}: {exc})") from None
 
 
 def detect_format(row: dict[str, Any]) -> str:
@@ -258,36 +290,59 @@ def detect_format(row: dict[str, Any]) -> str:
     raise FormatError("cannot tell the format of this record; pass --format")
 
 
-def _read_traj_file(path: Path) -> Trajectory:
-    with path.open(encoding="utf-8") as fh:
-        data = json.load(fh)
-    return from_swe_agent(data, instance_id=path.name.removesuffix(".traj"))
+def _load_traj_file(path: Path) -> Any:
+    try:
+        with path.open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise FormatError(f"{path}: invalid JSON ({exc.msg})") from None
 
 
-def read_path(path: str | Path, fmt: str = "auto") -> Iterator[Trajectory]:
-    """Read every trajectory under ``path`` (a file, or a directory of ``.traj`` files)."""
+def read_path(path: str | Path, fmt: str = "auto", stats: ReadStats | None = None
+              ) -> Iterator[Trajectory]:
+    """Read every trajectory under ``path`` (a file, or a directory of ``.traj`` files).
+
+    Malformed records raise :class:`FormatError` naming the file and line. Records that
+    cannot be encoded as UTF-8 are skipped and counted in ``stats``.
+    """
     p = Path(path)
+    st = stats if stats is not None else ReadStats()
     if fmt not in FORMATS:
         raise FormatError(f"unknown format {fmt!r}; choose from {', '.join(FORMATS)}")
-    if p.is_dir():
-        for f in sorted(p.rglob("*.traj")):
-            yield _read_traj_file(f)
+    if p.is_dir() or p.suffix == ".traj" or (fmt == "swe-agent"
+                                              and p.suffix not in (".jsonl", ".gz")):
+        files = sorted(p.rglob("*.traj")) if p.is_dir() else [p]
+        if not files:
+            raise FormatError(f"{p}: directory holds no .traj files")
+        for f in files:
+            data = _load_traj_file(f)
+            st.rows += 1
+            if not _encodable(data):
+                st.skipped_unencodable += 1
+                continue
+            yield _parse(str(f), lambda d=data, f=f: from_swe_agent(
+                d, instance_id=f.name.removesuffix(".traj")))
         return
-    if p.suffix == ".traj" or (fmt == "swe-agent" and p.suffix not in (".jsonl", ".gz")):
-        yield _read_traj_file(p)
-        return
-    for row in _iter_records(p):
+    for where, row in _iter_records(p):
         if not isinstance(row, dict):
-            raise FormatError(f"{p}: record is not an object")
-        kind = detect_format(row) if fmt == "auto" else fmt
+            raise FormatError(f"{where}: record is not an object")
+        st.rows += 1
+        if not _encodable(row):
+            st.skipped_unencodable += 1
+            continue
+        try:
+            kind = detect_format(row) if fmt == "auto" else fmt
+        except FormatError as exc:
+            raise FormatError(f"{where}: {exc}") from None
         if kind == "native":
-            yield Trajectory.from_dict(row)
+            yield _parse(where, lambda r=row: Trajectory.from_dict(r))
         elif kind == "nebius":
-            yield from_nebius_row(row)
+            yield _parse(where, lambda r=row: from_nebius_row(r))
         elif kind == "messages":
-            yield from_messages_row(row)
+            yield _parse(where, lambda r=row: from_messages_row(r))
         elif kind == "swe-agent":
-            yield from_swe_agent(row, instance_id=str(row.get("instance_id", "")))
+            yield _parse(where, lambda r=row: from_swe_agent(
+                r, instance_id=str(r.get("instance_id", ""))))
 
 
 def write_jsonl(records: Iterable[dict[str, Any]], path: str | Path) -> int:
@@ -301,11 +356,17 @@ def write_jsonl(records: Iterable[dict[str, Any]], path: str | Path) -> int:
     return n
 
 
-def iter_jsonl(path: str | Path) -> Iterator[dict[str, Any]]:
-    """Yield the JSON objects of a JSONL (or JSON list) file, gzipped or not."""
-    for row in _iter_records(Path(path)):
+def iter_jsonl(path: str | Path, stats: ReadStats | None = None) -> Iterator[dict[str, Any]]:
+    """Yield the JSON objects of a JSONL (or JSON list) file, gzipped or not; records that
+    cannot be encoded as UTF-8 are skipped and counted in ``stats``."""
+    st = stats if stats is not None else ReadStats()
+    for where, row in _iter_records(Path(path)):
         if not isinstance(row, dict):
-            raise FormatError(f"{path}: record is not an object")
+            raise FormatError(f"{where}: record is not an object")
+        st.rows += 1
+        if not _encodable(row):
+            st.skipped_unencodable += 1
+            continue
         yield row
 
 

@@ -114,3 +114,58 @@ def test_pipeline_example_runs(capsys) -> None:
     runpy.run_path(str(EXAMPLE.with_name("pipeline.py")), run_name="__main__")
     out = capsys.readouterr().out
     assert "rows in: 21" in out and "'shared_instances': 0" in out
+
+
+@pytest.mark.parametrize(
+    "content,args,needle",
+    [
+        ('{"id": "x", "steps": [1, 2]}\n', [], "in.jsonl:1: cannot read record"),
+        ('{"steps": []}\n', ["--format", "native"], "in.jsonl:1: cannot read record"),
+        ('{"messages": [{"role": "assistant", "content": "", "tool_calls": 5}]}\n', [],
+         "in.jsonl:1: cannot read record"),
+        ('{"a": 1}\n{"foo": 2}\n', [], "in.jsonl:1: cannot tell the format"),
+        ('[{"messages": "x"}]', ["--format", "messages"], "in.jsonl item 1"),
+    ],
+)
+def test_malformed_records_give_an_error_line(tmp_path: Path, capsys, content, args,
+                                              needle) -> None:
+    p = tmp_path / "in.jsonl"
+    p.write_text(content, encoding="utf-8")
+    assert main(["funnel", str(p), *args]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("trajdistill: error:") and needle in err and "Traceback" not in err
+
+
+def test_traj_file_holding_a_list_and_empty_directory(tmp_path: Path, capsys) -> None:
+    (tmp_path / "x.traj").write_text("[1, 2]", encoding="utf-8")
+    assert main(["funnel", str(tmp_path / "x.traj"), "--outcome", "any"]) == 2
+    assert "x.traj: cannot read record" in capsys.readouterr().err
+    only_jsonl = tmp_path / "d"
+    only_jsonl.mkdir()
+    (only_jsonl / "a.jsonl").write_text("{}\n", encoding="utf-8")
+    assert main(["funnel", str(only_jsonl)]) == 2
+    assert "no .traj files" in capsys.readouterr().err
+
+
+def test_bad_failure_pattern_is_an_error(sample: Path, capsys) -> None:
+    assert main(["funnel", str(sample), "--drop-failed", "--failure-pattern", "("]) == 2
+    assert "bad failure pattern" in capsys.readouterr().err
+
+
+def test_unencodable_rows_are_skipped_and_counted(tmp_path: Path, capsys) -> None:
+    good = make_traj(tid="g").to_dict()
+    p = tmp_path / "in.jsonl"
+    bad = json.dumps(make_traj(tid="b", actions=["x"]).to_dict()).replace("x", "\\ud800", 1)
+    p.write_text(json.dumps(good) + "\n" + bad + "\n", encoding="utf-8")
+    out = tmp_path / "out.jsonl"
+    assert main(["select", str(p), "-o", str(out)]) == 0
+    assert [t.id for t in read_path(out)] == ["g"]
+    assert "skipped 1 of 2 records" in capsys.readouterr().err
+    samples = tmp_path / "s.jsonl"
+    assert main(["convert", str(p), "-o", str(samples)]) == 0
+    assert "skipped 1 of 2" in capsys.readouterr().err
+    split_in = tmp_path / "split.jsonl"
+    split_in.write_text('{"instance_id": "a-1"}\n{"instance_id": "\\ud800"}\n', encoding="utf-8")
+    assert main(["split", str(split_in), "--train", str(tmp_path / "t"), "--val",
+                 str(tmp_path / "v")]) == 0
+    assert "skipped 1 of 2" in capsys.readouterr().err

@@ -11,7 +11,15 @@ from pathlib import Path
 from . import __version__
 from .clean import DEFAULT_FAILURE_PATTERNS, CleanConfig, clean_all
 from .funnel import report_text, run_pipeline
-from .readers import FORMATS, FormatError, iter_jsonl, read_path, write_jsonl, write_native
+from .readers import (
+    FORMATS,
+    FormatError,
+    ReadStats,
+    iter_jsonl,
+    read_path,
+    write_jsonl,
+    write_native,
+)
 from .samples import GRANULARITIES, STYLES, ConvertStats, build_samples
 from .select import (
     DEDUPE_KEYS,
@@ -175,9 +183,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _warn_skipped(rs: ReadStats) -> None:
+    if rs.skipped_unencodable:
+        print(f"trajdistill: warning: skipped {rs.skipped_unencodable} of {rs.rows} records "
+              "holding text that cannot be encoded as UTF-8", file=sys.stderr)
+
+
 def _cmd_select(a: argparse.Namespace) -> int:
-    rep = run_pipeline(read_path(a.input, a.format), _clean_config(a), _select_config(a),
+    rs = ReadStats()
+    rep = run_pipeline(read_path(a.input, a.format, rs), _clean_config(a), _select_config(a),
                        _counter(a))
+    _warn_skipped(rs)
     if a.command == "funnel":
         print(json.dumps(rep.to_dict(), indent=2) if a.json else report_text(rep))
         return 0
@@ -189,7 +205,9 @@ def _cmd_select(a: argparse.Namespace) -> int:
 
 
 def _cmd_convert(a: argparse.Namespace) -> int:
-    trajs, cstats = clean_all(read_path(a.input, a.format), _clean_config(a))
+    rs = ReadStats()
+    trajs, cstats = clean_all(read_path(a.input, a.format, rs), _clean_config(a))
+    _warn_skipped(rs)
     stats = ConvertStats()
     write_jsonl(build_samples(trajs, style=a.to, granularity=a.granularity,
                               context_budget=a.context_budget, counter=_counter(a),
@@ -203,7 +221,10 @@ def _cmd_convert(a: argparse.Namespace) -> int:
 
 
 def _cmd_split(a: argparse.Namespace) -> int:
-    train, val, info = split_records(iter_jsonl(a.input), by=a.by, val_fraction=a.val_fraction,
+    rs = ReadStats()
+    records = list(iter_jsonl(a.input, rs))
+    _warn_skipped(rs)
+    train, val, info = split_records(records, by=a.by, val_fraction=a.val_fraction,
                                      seed=a.seed)
     write_jsonl(train, a.train)
     write_jsonl(val, a.val)
