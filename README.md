@@ -219,7 +219,8 @@ trajdistill split data/steps.jsonl --train data/train.jsonl --val data/val.jsonl
 
 gives 1,452 step samples (6,369,268 tokens, 514 earlier steps left out to fit the budget, none skipped),
 split into 1,287 train and 165 validation samples from 52 and 7 repositories, with no instance on both sides.
-The default funnel over the 3,000 rows took 23 seconds here.
+The default funnel over the 3,000 rows took 47 seconds of wall time and 8.5 seconds of CPU, measured on a
+loaded laptop (`/usr/bin/time -l`); timings vary with load.
 
 ## Limitations
 
@@ -237,6 +238,12 @@ The default funnel over the 3,000 rows took 23 seconds here.
   is replaced. An unterminated private-key block is redacted up to the next blank line or diff header. The
   test-file flag is taken from the patch before redaction.
 - Tokens are a character estimate unless tiktoken is installed; the estimate is not any model's tokenizer.
+  `--context-budget` and `--max-tokens` use the same counter, so with the estimate a sample can be over the
+  budget in a model's real tokens; `--tokenizer tiktoken` bounds it in that encoding instead.
+- Everything is held in memory. The default funnel over the 3,000-row sample peaked at 327,843,840 bytes
+  resident (`/usr/bin/time -l`), so much larger inputs need splitting first.
+- `--loops cut` keeps `resolved` and the final patch of a run that no longer contains its last steps; the
+  cut point is recorded as `meta.loop_cut_at`, and `--loops drop` avoids the mismatch.
 - The sample above is 3.7 % of the dataset in runs of 25 neighbouring rows, which group runs of the same
   instance; its numbers describe that sample, not the whole dataset.
 - Tests (89, 97 % line coverage with `uv run --extra dev pytest --cov=trajdistill`) use synthetic fixtures;
