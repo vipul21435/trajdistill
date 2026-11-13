@@ -126,12 +126,30 @@ class CleanStats:
 
 
 def strip_ansi(text: str) -> str:
-    return ANSI.sub("", text)
+    """Remove escape sequences, repeating until none is left (removing one can join the
+    pieces of another)."""
+    while True:
+        new = ANSI.sub("", text)
+        if new == text:
+            return new
+        text = new
 
 
 def redact(text: str) -> tuple[str, int]:
     """Replace private-key blocks and key-like strings with ``[REDACTED]`` and home
-    directories (``/home/<name>``, the macOS and Windows user folders) with ``~``."""
+    directories (``/home/<name>``, the macOS and Windows user folders) with ``~``.
+
+    Passes repeat until one replaces nothing: a replacement can expose a neighbour (two key
+    ids back to back). Every replacement is shorter than what it replaces, so this ends."""
+    total = 0
+    while True:
+        text, n = _redact_once(text)
+        if n == 0:
+            return text, total
+        total += n
+
+
+def _redact_once(text: str) -> tuple[str, int]:
     text, a = _PEM.subn(REDACTED, text)
     text, b = _KEY.subn(REDACTED, text)
     hits = 0

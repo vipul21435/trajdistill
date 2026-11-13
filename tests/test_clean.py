@@ -145,7 +145,8 @@ def test_clean_config_validation(kwargs) -> None:
 
 PIECES = ["ok", " ", "\t", "\n", "\r\n", "\n\n\n", f"{ESC}[1m", f"{ESC}[0m", OPENAI_LIKE,
           MAC_HOME + "/w", "x" + LINUX_HOME, "command not found", "Traceback", "y" * 120,
-          "xs" + "k-" + "Z" * 30]
+          "xs" + "k-" + "Z" * 30, f"{ESC}[{ESC}[31m1m", AWS_LIKE + AWS_LIKE, "/", ":",
+          "file://", "-I", WIN_HOME + "\\", "C:/" + "Users" + "/d e/"]
 
 
 def _noise(rng: random.Random) -> str:
@@ -261,3 +262,10 @@ def test_counts_skip_the_derived_action_and_report_the_marker_number() -> None:
     assert d["redactions"] == 1
     marker_k = int(out.steps[0].observations[0].split("[... ")[1].split(" ")[0])
     assert d["chars_elided"] == marker_k == 1000 - (200 - len(elision_marker(1000)))
+
+
+def test_nested_escapes_and_back_to_back_keys_clear_in_one_pass() -> None:
+    nested = f"a{ESC}[{ESC}[31m1mb"
+    assert strip_ansi(nested) == "ab"
+    out, n = redact(AWS_LIKE + AWS_LIKE)
+    assert (out, n) == ("[REDACTED][REDACTED]", 2)
