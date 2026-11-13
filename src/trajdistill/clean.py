@@ -152,21 +152,27 @@ def elision_marker(n: int) -> str:
     return f"\n[... {n} characters elided ...]\n"
 
 
-def shorten(text: str, budget: int, head_fraction: float = 0.5) -> str:
-    """Keep the head and tail of ``text`` around an elision marker so the result has at most
-    ``budget`` characters. Text already within budget is returned unchanged."""
+def shorten_counted(text: str, budget: int, head_fraction: float = 0.5) -> tuple[str, int]:
+    """:func:`shorten`, also returning how many characters of ``text`` were left out."""
     if budget < 1:
         raise ValueError("budget must be >= 1")
     if len(text) <= budget:
-        return text
+        return text, 0
     widest = len(elision_marker(len(text)))
     keep = budget - widest
     if keep <= 0:
-        return text[:budget]
+        return text[:budget], len(text) - budget
     head = int(keep * head_fraction)
     tail = keep - head
     elided = len(text) - head - tail
-    return text[:head] + elision_marker(elided) + (text[len(text) - tail:] if tail else "")
+    out = text[:head] + elision_marker(elided) + (text[len(text) - tail:] if tail else "")
+    return out, elided
+
+
+def shorten(text: str, budget: int, head_fraction: float = 0.5) -> str:
+    """Keep the head and tail of ``text`` around an elision marker so the result has at most
+    ``budget`` characters. Text already within budget is returned unchanged."""
+    return shorten_counted(text, budget, head_fraction)[0]
 
 
 def normalise_whitespace(text: str) -> str:
@@ -194,10 +200,10 @@ def _text_pipeline(cfg: CleanConfig, stats: Counter[str]) -> Callable[[str, bool
             text, n = redact(text)
             stats["redactions"] += n
         if is_observation and cfg.max_observation_chars is not None:
-            new = shorten(text, cfg.max_observation_chars, cfg.head_fraction)
+            new, elided = shorten_counted(text, cfg.max_observation_chars, cfg.head_fraction)
             if new != text:
                 stats["observations_shortened"] += 1
-                stats["chars_elided"] += len(text) - len(new)
+                stats["chars_elided"] += elided
                 if cfg.redact:
                     # a cut can expose a fragment the first pass skipped; replacements
                     # are never longer than what they replace, so the budget still holds
@@ -219,6 +225,8 @@ def clean(traj: Trajectory, cfg: CleanConfig) -> tuple[Trajectory, CleanStats]:
     if not cfg.active:
         return traj, CleanStats(stats)
     run = _text_pipeline(cfg, stats)
+    # the action is derived from the content, so its changes are not counted a second time
+    run_uncounted = _text_pipeline(cfg, Counter())
     steps = []
     for s in traj.steps:
         calls = []
@@ -232,7 +240,7 @@ def clean(traj: Trajectory, cfg: CleanConfig) -> tuple[Trajectory, CleanStats]:
             content=run(s.content, False),
             observations=[run(o, True) for o in s.observations],
             tool_calls=calls,
-            action=run(s.action, False),
+            action=run_uncounted(s.action, False),
             failed=s.failed,
             reply_roles=list(s.reply_roles),
             reply_ids=list(s.reply_ids),

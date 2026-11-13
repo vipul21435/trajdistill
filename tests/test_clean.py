@@ -8,6 +8,7 @@ from trajdistill.clean import (
     CleanConfig,
     clean,
     clean_all,
+    elision_marker,
     normalise_whitespace,
     redact,
     shorten,
@@ -250,3 +251,13 @@ def test_home_directories_in_common_shapes(text: str, expected: str) -> None:
 )
 def test_home_candidates_inside_urls_or_names_are_kept(text: str) -> None:
     assert redact(text) == (text, 0)
+
+
+def test_counts_skip_the_derived_action_and_report_the_marker_number() -> None:
+    t = make_traj(actions=[f"export TOKEN={OPENAI_LIKE}"], observations=["z" * 1000])
+    out, stats = clean(t, CleanConfig(redact=True, strip_ansi=True, max_observation_chars=200))
+    assert "[REDACTED]" in out.steps[0].action  # still redacted, just not counted twice
+    d = stats.to_dict()
+    assert d["redactions"] == 1
+    marker_k = int(out.steps[0].observations[0].split("[... ")[1].split(" ")[0])
+    assert d["chars_elided"] == marker_k == 1000 - (200 - len(elision_marker(1000)))
