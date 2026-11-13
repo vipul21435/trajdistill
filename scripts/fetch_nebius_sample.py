@@ -64,7 +64,7 @@ def main() -> None:
     rng = random.Random(a.seed)
     offsets = sorted(s * a.run for s in rng.sample(range(slots), n_runs))
     parts = Path(a.out + ".parts")
-    parts.mkdir(exist_ok=True)
+    parts.mkdir(parents=True, exist_ok=True)
     for k, off in enumerate(offsets):
         part = parts / f"{off:07d}.jsonl"
         if part.exists():
