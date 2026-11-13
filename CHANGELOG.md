@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Chat replies keep their role and `tool_call_id`; tool replies are matched to calls by id, user turns stay
+  user turns, and the older `function_call` field is read.
+- Redaction: home directories are found after `=`, `:`, `file://` and flags such as `-I`, with non-ASCII and
+  spaced names; key blocks without an END line stop at a blank line or diff header; key patterns are
+  narrower; passes repeat until nothing changes. The test-file flag is taken from the patch before
+  redaction.
+- Cleaning counts: `redactions` no longer counts the derived action again, and `chars_elided` is the number
+  the elision marker states.
+- Split: each instance gets one repository before a `--by repo` split, a group joins validation only when it
+  brings the share closer to the target, and empty or uneven sides are warned about.
+- Malformed records fail with the file and line; records that UTF-8 cannot encode are skipped and counted; a
+  directory without `.traj` files is an error.
+- The fetch script creates missing folders; the tiktoken extra is given as a git-URL install.
+
 ## 0.1.0
 
 First release.
