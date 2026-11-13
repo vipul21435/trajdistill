@@ -26,6 +26,7 @@ TEST_PATCH_MODES = ("keep", "drop")
 LOOP_MODES = ("keep", "drop", "cut")
 LOOP_KEYS = ("action+observation", "action")
 PER_INSTANCE_MODES = ("all", "shortest", "best", "random")
+DEDUPE_KEYS = ("content", "actions")
 
 _WS = re.compile(r"\s+")
 
@@ -35,6 +36,7 @@ class SelectConfig:
     """Settings for :func:`select`. ``None`` or the neutral choice turns a filter off."""
 
     dedupe: bool = True
+    dedupe_key: str = "content"
     outcome: str = "resolved"
     exit_status: tuple[str, ...] = ()
     require_patch: bool = True
@@ -50,6 +52,7 @@ class SelectConfig:
     seed: int = 0
 
     def __post_init__(self) -> None:
+        _check("dedupe_key", self.dedupe_key, DEDUPE_KEYS)
         _check("outcome", self.outcome, OUTCOMES)
         _check("test_patches", self.test_patches, TEST_PATCH_MODES)
         _check("loops", self.loops, LOOP_MODES)
@@ -163,10 +166,12 @@ def select(trajs: Iterable[Trajectory], config: SelectConfig | None = None,
         flagged += t.meta["touches_tests"]
 
     def dedupe(ts: list[Trajectory]) -> tuple[list[Trajectory], int]:
-        seen: set[str] = set()
+        seen: set[Any] = set()
         out = []
         for t in ts:
-            h = hashes[id(t)]
+            h: Any = hashes[id(t)]
+            if cfg.dedupe_key == "actions":
+                h = (t.instance_id, tuple(_norm(s.action) for s in t.steps))
             if h not in seen:
                 seen.add(h)
                 out.append(t)
@@ -225,7 +230,8 @@ def select(trajs: Iterable[Trajectory], config: SelectConfig | None = None,
         return [t for t in ts if id(t) in keep], 0
 
     plan: list[tuple[str, str, bool, Filter]] = [
-        ("duplicates", "exact content", cfg.dedupe, dedupe),
+        ("duplicates", "exact content" if cfg.dedupe_key == "content"
+         else "same actions per instance", cfg.dedupe, dedupe),
         ("outcome", cfg.outcome, cfg.outcome == "resolved", outcome),
         ("exit_status", ",".join(cfg.exit_status) or "any", bool(cfg.exit_status), exit_status),
         ("empty_patch", "required" if cfg.require_patch else "off", cfg.require_patch, patch),

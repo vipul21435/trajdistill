@@ -12,6 +12,7 @@ from . import __version__
 from .funnel import funnel_table
 from .readers import FORMATS, FormatError, read_path, write_native
 from .select import (
+    DEDUPE_KEYS,
     LOOP_KEYS,
     LOOP_MODES,
     OUTCOMES,
@@ -31,7 +32,10 @@ def _add_input(p: argparse.ArgumentParser) -> None:
 
 def _add_filters(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("filters (applied in this order)")
-    g.add_argument("--no-dedupe", action="store_true", help="keep exact duplicate trajectories")
+    g.add_argument("--no-dedupe", action="store_true", help="keep duplicate trajectories")
+    g.add_argument("--dedupe-key", choices=DEDUPE_KEYS, default="content",
+                   help="duplicates are identical content, or the same action sequence on the "
+                        "same instance (default: content)")
     g.add_argument("--outcome", choices=OUTCOMES, default="resolved",
                    help="keep resolved trajectories only, or any outcome (default: resolved)")
     g.add_argument("--exit-status", action="append", default=[], metavar="PATTERN",
@@ -64,6 +68,7 @@ def _add_filters(p: argparse.ArgumentParser) -> None:
 def _config(a: argparse.Namespace) -> SelectConfig:
     return SelectConfig(
         dedupe=not a.no_dedupe,
+        dedupe_key=a.dedupe_key,
         outcome=a.outcome,
         exit_status=tuple(a.exit_status),
         require_patch=not a.allow_empty_patch,

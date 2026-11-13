@@ -184,3 +184,16 @@ def test_property_counts_add_up_and_order_does_not_matter() -> None:
 def test_seeded_rank_is_stable_and_seed_dependent() -> None:
     assert seeded_rank(0, "a") == seeded_rank(0, "a")
     assert seeded_rank(0, "a") != seeded_rank(1, "a")
+
+
+def test_dedupe_by_action_sequence() -> None:
+    a = make_traj(tid="a", observations=["1", "2", "3"])
+    b = make_traj(tid="b", observations=["x", "y", "z"])  # same actions, other outputs
+    c = make_traj("acme__widgets-2", tid="c")  # same actions, other instance
+    content = select([a, b, c], SelectConfig(**ANY))
+    assert content.rows_out == 3
+    actions = select([b, c, a], SelectConfig(dedupe_key="actions", **ANY))
+    assert ids(actions) == ["a", "c"]
+    assert stage(actions, "duplicates").setting == "same actions per instance"
+    with pytest.raises(ValueError):
+        SelectConfig(dedupe_key="names")
