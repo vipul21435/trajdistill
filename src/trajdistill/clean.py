@@ -24,9 +24,10 @@ ANSI = re.compile(
 _WS = re.compile(r"\s+")
 
 _SEP = r"[\\/]"
+# a home directory followed by a path separator, not inside a URL (no ! # : / % before it)
 _HOME = re.compile(
-    r"(?<![\w.~-])(?:/home|/" + "Users" + r"|[A-Za-z]:\\" + "Users" + r")" + _SEP
-    + r"[A-Za-z0-9._-]+(?=[\\/\s'\":,;)\]}]|$)"
+    r"(?<![\w.~!#:/%-])(?:/home|/" + "Users" + r"|[A-Za-z]:\\" + "Users" + r")" + _SEP
+    + r"[A-Za-z0-9._-]+(?=[\\/])"
 )
 # Key-like strings, built from pieces so this file holds no literal secret-shaped text.
 _KEY_PARTS = [

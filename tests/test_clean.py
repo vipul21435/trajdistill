@@ -37,18 +37,20 @@ def test_strip_ansi() -> None:
 
 def test_redact_keys_and_homes() -> None:
     text = (f"key={OPENAI_LIKE} aws {AWS_LIKE} tok {GH_LIKE} hf {HF_LIKE}\n{PEM}\n"
-            f"cd {MAC_HOME}/proj && ls {LINUX_HOME} 'C {WIN_HOME}\\x'")
+            f"cd {MAC_HOME}/proj && ls {LINUX_HOME}/src 'C {WIN_HOME}\\x'")
     out, n = redact(text)
     assert n == 8
     for secret in (OPENAI_LIKE, AWS_LIKE, GH_LIKE, HF_LIKE, "MIIabc", "alice", "bob", "carol"):
         assert secret not in out
-    assert "cd ~/proj" in out and "ls ~ " in out
+    assert "cd ~/proj" in out and "ls ~/src" in out
     assert redact(out) == (out, 0)
 
 
 def test_redact_leaves_ordinary_text() -> None:
+    # false positives seen on real rows: a file directly under /home, a URL fragment
     for s in ("task-skip", "risk-assessment-is-long-enough-here", "/homepage/x", "my/home/dir",
-              "/usr/local/bin", "AKIAshort"):
+              "/usr/local/bin", "AKIAshort", "(Open file: /home/temp.py)",
+              "https://example.org/api#!/" + "Users" + "/get_users/x", "cd " + LINUX_HOME):
         assert redact(s) == (s, 0)
 
 
