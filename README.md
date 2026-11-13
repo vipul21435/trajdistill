@@ -17,7 +17,11 @@ order, counts what each one removed and shows the data before and after.
 pip install git+https://github.com/vipul21435/trajdistill
 ```
 
-Python 3.10 or newer, no runtime dependencies. `pip install 'trajdistill[tiktoken]'` adds exact token counts.
+Python 3.10 or newer, no runtime dependencies. For exact token counts add the tiktoken extra:
+
+```
+pip install "trajdistill[tiktoken] @ git+https://github.com/vipul21435/trajdistill"
+```
 
 ## Quickstart
 

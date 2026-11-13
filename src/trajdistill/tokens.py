@@ -26,9 +26,10 @@ class TokenCounter:
         if method == "tiktoken":
             try:
                 import tiktoken
-            except ImportError as exc:  # pragma: no cover - depends on the environment
+            except ImportError as exc:
                 raise RuntimeError(
-                    "tiktoken is not installed; pip install 'trajdistill[tiktoken]'"
+                    "tiktoken is not installed; pip install "
+                    '"trajdistill[tiktoken] @ git+https://github.com/vipul21435/trajdistill"'
                 ) from exc
             self._enc = tiktoken.get_encoding(encoding)
 

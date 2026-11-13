@@ -60,3 +60,11 @@ def test_touches_tests() -> None:
     assert touches_tests(PATCH_TEST)
     assert not touches_tests(PATCH_SRC)
     assert touches_tests(PATCH_SRC + PATCH_TEST)
+
+
+def test_missing_tiktoken_names_the_git_install(monkeypatch) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "tiktoken", None)  # makes the import fail
+    with pytest.raises(RuntimeError, match=r"trajdistill\[tiktoken\] @ git\+https://github.com/"):
+        TokenCounter(method="tiktoken")
