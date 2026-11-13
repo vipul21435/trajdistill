@@ -73,7 +73,7 @@ def test_split_command(tmp_path: Path, capsys) -> None:
     tr, va = tmp_path / "train.jsonl", tmp_path / "val.jsonl"
     assert main(["split", str(src), "--train", str(tr), "--val", str(va), "--val-fraction",
                  "0.3", "--by", "repo"]) == 0
-    info = json.loads(capsys.readouterr().err)
+    info = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert info["rows_train"] + info["rows_val"] == 20 and info["shared_instances"] == 0
     train_repos = {r["repo"] for r in iter_jsonl(tr)}
     val_repos = {r["repo"] for r in iter_jsonl(va)}
@@ -169,3 +169,13 @@ def test_unencodable_rows_are_skipped_and_counted(tmp_path: Path, capsys) -> Non
     assert main(["split", str(split_in), "--train", str(tmp_path / "t"), "--val",
                  str(tmp_path / "v")]) == 0
     assert "skipped 1 of 2" in capsys.readouterr().err
+
+
+def test_split_prints_warnings(tmp_path: Path, capsys) -> None:
+    src = tmp_path / "one.jsonl"
+    src.write_text("".join(json.dumps({"instance_id": "o__r-1", "k": i}) + "\n"
+                           for i in range(10)), encoding="utf-8")
+    assert main(["split", str(src), "--train", str(tmp_path / "t"), "--val",
+                 str(tmp_path / "v")]) == 0
+    err = capsys.readouterr().err
+    assert "trajdistill: warning: validation is empty" in err

@@ -43,3 +43,33 @@ def test_split_hits_target_within_one_group() -> None:
         split_records(recs, by="model")
     with pytest.raises(ValueError):
         split_records(recs, val_fraction=1.5)
+
+
+def test_rows_of_one_instance_with_different_repo_values_stay_together() -> None:
+    recs = [{"instance_id": "django-101", "repo": "django/django"}, {"instance_id": "django-101"},
+            {"instance_id": "flask-7"}, {"instance_id": "numpy-9"}]
+    for seed in range(10):
+        train, val, info = split_records(recs, by="repo", val_fraction=0.3, seed=seed)
+        assert info.shared_instances == 0
+        sides = {r["instance_id"] for r in train} & {r["instance_id"] for r in val}
+        assert not sides
+
+
+def test_one_large_group_cannot_take_validation() -> None:
+    recs = [{"instance_id": "big__r-1", "k": i} for i in range(90)]
+    recs += [{"instance_id": f"small__r-{i}"} for i in range(10)]
+    for seed in range(20):
+        _, val, info = split_records(recs, val_fraction=0.1, seed=seed)
+        assert len(val) == 10 and not info.warnings
+
+
+def test_empty_side_and_miss_are_warned() -> None:
+    recs = [{"instance_id": "o__r-1", "k": i} for i in range(10)]
+    train, val, info = split_records(recs, val_fraction=0.1)
+    assert (len(train), len(val)) == (10, 0)
+    assert info.warnings and "validation is empty" in info.warnings[0]
+    uneven = [{"instance_id": "a__r-1", "k": i} for i in range(6)]
+    uneven += [{"instance_id": "b__r-1", "k": i} for i in range(4)]
+    _, val, info = split_records(uneven, val_fraction=0.25)
+    assert len(val) == 4 and "against a target of 25.0%" in info.warnings[0]
+    assert split_records(recs, val_fraction=0.0)[2].warnings == []

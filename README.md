@@ -139,9 +139,12 @@ context up to t and step t's model turn as the target. Under `--context-budget` 
 until the sample fits, and a short note (`[n earlier steps omitted]`) says so; a step that does not fit even
 alone is skipped and counted. A test checks on random trajectories that no sample exceeds its budget.
 
-**Split.** Whole groups (instances, or repositories with `--by repo`) go to one side. Groups are taken in a
-seeded order into validation until it holds `--val-fraction` of the rows, so it can overshoot by one group.
-No instance is ever on both sides (a property test checks this).
+**Split.** Whole groups (instances, or repositories with `--by repo`) go to one side. With `--by repo` each
+instance is first given one repository (the most common `repo` value on its rows, else the one derived from
+its id), so no instance is on both sides even when its rows disagree (a property test checks this). Groups
+are visited in a seeded order and one joins validation when that brings validation closer to
+`--val-fraction` of the rows. A warning is printed when a side is empty or the share misses the target by
+more than 10 points, which happens when single groups are large.
 
 **Background.** SWE-agent (Yang et al. 2024) introduced an agent-computer interface through which language
 model agents edit code, navigate repositories and run tests. SWE-Gym (Pan et al. 2024) is an environment of

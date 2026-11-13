@@ -228,6 +228,8 @@ def _cmd_split(a: argparse.Namespace) -> int:
                                      seed=a.seed)
     write_jsonl(train, a.train)
     write_jsonl(val, a.val)
+    for w in info.warnings:
+        print(f"trajdistill: warning: {w}", file=sys.stderr)
     print(json.dumps(info.to_dict()), file=sys.stderr)
     return 0
 
