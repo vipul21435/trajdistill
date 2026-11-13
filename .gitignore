@@ -11,5 +11,5 @@ coverage.xml
 htmlcov/
 .DS_Store
 # downloaded trajectories never go into git
-data/
 *.parquet
+/data
