@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trajdistill"
+version = "0.1.0"
+description = "Select, clean and convert coding-agent trajectories into chat-format training samples, with every filter counted."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Vipul Raj Jha" }]
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["agents", "trajectories", "fine-tuning", "sft", "swe-agent", "datasets"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+tiktoken = ["tiktoken>=0.5"]
+dev = ["pytest>=7", "pytest-cov>=4", "ruff>=0.5"]
+
+[project.scripts]
+trajdistill = "trajdistill.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vipul21435/trajdistill"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trajdistill"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
