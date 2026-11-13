@@ -188,9 +188,9 @@ trajdistill funnel data/nebius-sample.jsonl.gz --strip-ansi --redact --normalise
   --test-patches drop --loops drop --max-tokens 32000 --per-instance shortest -k 3 --max-per-repo 10
 ```
 
-Cleaning changes every row: 8,917 observations shortened (7,874,161 characters elided), 11,700 failed steps
+Cleaning changes every row: 8,917 observations shortened (8,169,626 characters elided), 11,700 failed steps
 dropped (before cleaning the edit-linter message appears in 8,715 replies and `command not found` in 2,985),
-452 texts with ANSI codes stripped, 2,218 redactions. Tokens go from 45,058,876 to 36,010,118. Then:
+452 texts with ANSI codes stripped, 2,172 redactions. Tokens go from 45,058,876 to 36,010,210. Then:
 
 | filter | setting | removed | left |
 |---|---|---:|---:|
@@ -198,10 +198,10 @@ dropped (before cleaning the edit-linter message appears in 8,715 replies and `c
 | outcome | resolved | 2,430 | 566 |
 | exit status | `submitted*` | 0 | 566 |
 | empty patch | required | 0 | 566 |
-| test-file patches | drop (292 flagged after cleaning) | 39 | 527 |
-| loops | drop | 15 | 512 |
-| max tokens | 32,000 | 0 | 512 |
-| per instance | shortest, k = 3 | 351 | 161 |
+| test-file patches | drop (293 flagged) | 40 | 526 |
+| loops | drop | 15 | 511 |
+| max tokens | 32,000 | 0 | 511 |
+| per instance | shortest, k = 3 | 350 | 161 |
 | per repository | 10 | 8 | 153 |
 
 Share of the largest repository (pydantic/pydantic): 8.4 % of the input, 11.1 % of the 161 rows that reach
@@ -218,7 +218,8 @@ trajdistill split data/steps.jsonl --train data/train.jsonl --val data/val.jsonl
 ```
 
 gives 1,452 step samples (6,369,268 tokens, 514 earlier steps left out to fit the budget, none skipped),
-split into 1,287 train and 165 validation samples from 52 and 7 repositories, with no instance on both sides.
+split into 1,308 train and 144 validation samples (9.9 %) from 53 and 6 repositories, with no instance on both
+sides and no warning.
 The default funnel over the 3,000 rows took 47 seconds of wall time and 8.5 seconds of CPU, measured on a
 loaded laptop (`/usr/bin/time -l`); timings vary with load.
 
@@ -233,9 +234,9 @@ loaded laptop (`/usr/bin/time -l`); timings vary with load.
   turns is left to the trainer.
 - Redaction is pattern based. It misses secrets without a known prefix, a home directory written without a
   following path (`cd /home/<name>`), macOS user names with spaces, and homes elsewhere (`/root`,
-  `/var/home`, a Windows folder seen through `/mnt/c/Users`). It over-matches too: a web path under `/home/` (`GET /home/<page>/...`)
-  becomes `~/...`, and a long identifier that starts with one of the key prefixes and mixes digits and capitals
-  is replaced. An unterminated private-key block is redacted up to the next blank line or diff header. The
+  `/var/home`, a Windows folder seen through `/mnt/c/Users`). It over-matches too: a web path under
+  `/home/` (`GET /home/<page>/...`) becomes `~/...`, and a long identifier that starts with one of the key
+  prefixes and mixes digits and capitals is replaced. An unterminated private-key block is redacted up to the next blank line or diff header. The
   test-file flag is taken from the patch before redaction.
 - Tokens are a character estimate unless tiktoken is installed; the estimate is not any model's tokenizer.
   `--context-budget` and `--max-tokens` use the same counter, so with the estimate a sample can be over the
@@ -246,7 +247,7 @@ loaded laptop (`/usr/bin/time -l`); timings vary with load.
   cut point is recorded as `meta.loop_cut_at`, and `--loops drop` avoids the mismatch.
 - The sample above is 3.7 % of the dataset in runs of 25 neighbouring rows, which group runs of the same
   instance; its numbers describe that sample, not the whole dataset.
-- Tests (89, 97 % line coverage with `uv run --extra dev pytest --cov=trajdistill`) use synthetic fixtures;
+- Tests (125, 98 % line coverage with `uv run --extra dev pytest --cov=trajdistill`) use synthetic fixtures;
   the run above is the only check against real rows.
 
 ## Related tools
