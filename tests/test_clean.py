@@ -214,3 +214,39 @@ def test_key_pattern_leaves_identifiers_of_the_same_shape() -> None:
     assert redact("my-" + "s" + "k-" + "Ab12" * 8)[1] == 0  # part of a longer name
     assert redact("h" + "f_" + "AutoModelForCausalLMWithValueHead")[1] == 0
     assert redact(OPENAI_LIKE)[1] == 1
+
+
+ALICE = "/home" + "/alice"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("PATH=/usr/bin:" + ALICE + "/bin", "PATH=/usr/bin:~/bin"),
+        ("file://" + ALICE + "/proj/x.py", "file://~/proj/x.py"),
+        ("gcc -I" + ALICE + "/include", "gcc -I~/include"),
+        ("scp alice@host:" + ALICE + "/x", "scp alice@host:~/x"),
+        ("C:/" + "Users" + "/alice/x.txt", "~/x.txt"),
+        ("/home" + "/jos\u00e9/proj/x.py", "~/proj/x.py"),
+        ("C:\\" + "Users" + "\\John Doe\\x.txt", "~\\x.txt"),
+        ('open("' + ALICE + '/a")', 'open("~/a")'),
+    ],
+)
+def test_home_directories_in_common_shapes(text: str, expected: str) -> None:
+    assert redact(text) == (expected, 1)
+    assert redact(expected) == (expected, 0)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.org" + ALICE + "/x",
+        "http://localhost:8000" + ALICE + "/x",
+        "see docs#!/" + "Users" + "/get_users/list",
+        "(Open file: /home/temp.py)",
+        "x" + ALICE + "/y",
+        "~" + ALICE + "/y",
+    ],
+)
+def test_home_candidates_inside_urls_or_names_are_kept(text: str) -> None:
+    assert redact(text) == (text, 0)

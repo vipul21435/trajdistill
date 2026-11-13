@@ -89,7 +89,8 @@ replies and a canonical action (the tool calls, else the last fenced block). A t
 
 **Cleaning** (all off by default, run before the filters, counted). In this order: strip ANSI escape codes;
 redact key-like strings and private-key blocks to `[REDACTED]` and home directories followed by a path
-(`/home/<name>/...` and the macOS and Windows user folders) to `~`; shorten each observation longer than
+(`/home/<name>/...` and the macOS and Windows user folders, also after `=`, `:`, `file://` or a flag such
+as `-I`, but not inside a URL with a host) to `~`; shorten each observation longer than
 `--max-observation-chars N` to its head and tail around a marker `[... k characters elided ...]`, so the
 result never exceeds N characters (redaction runs again after a cut); normalise whitespace (line endings,
 trailing spaces, runs of blank lines); `--drop-failed` removes steps whose reply matches a failure pattern
@@ -222,8 +223,9 @@ The default funnel over the 3,000 rows took 23 seconds here.
 - ShareGPT output does not keep the text that accompanies a tool call (counted as `tool_call_text_dropped`),
   and step samples do not mark which turns to train on: the target is the last turn, and masking earlier
   turns is left to the trainer.
-- Redaction is pattern based. It misses secrets without a known prefix and a home directory written without a
-  following path (`cd /home/<name>`). It over-matches too: a web path under `/home/` (`GET /home/<page>/...`)
+- Redaction is pattern based. It misses secrets without a known prefix, a home directory written without a
+  following path (`cd /home/<name>`), macOS user names with spaces, and homes elsewhere (`/root`,
+  `/var/home`, a Windows folder seen through `/mnt/c/Users`). It over-matches too: a web path under `/home/` (`GET /home/<page>/...`)
   becomes `~/...`, and a long identifier that starts with one of the key prefixes and mixes digits and capitals
   is replaced. An unterminated private-key block is redacted up to the next blank line or diff header. The
   test-file flag is taken from the patch before redaction.

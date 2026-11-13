@@ -24,12 +24,29 @@ ANSI = re.compile(
 )
 _WS = re.compile(r"\s+")
 
-_SEP = r"[\\/]"
-# a home directory followed by a path separator, not inside a URL (no ! # : / % before it)
+# Home-directory candidates followed by a path separator: POSIX names without spaces (any
+# script), and Windows user folders with either slash, where names may hold spaces.
 _HOME = re.compile(
-    r"(?<![\w.~!#:/%-])(?:/home|/" + "Users" + r"|[A-Za-z]:\\" + "Users" + r")" + _SEP
-    + r"[A-Za-z0-9._-]+(?=[\\/])"
+    r"(?:/home|/" + "Users" + r")/[^\s/\\:*?\"<>|'`]+(?=/)"
+    r"|[A-Za-z]:[\\/]" + "Users" + r"[\\/][^\\/:*?\"<>|\r\n]+(?=[\\/])"
 )
+_HOME_BEFORE = frozenset(" \t\n\r\"'`=:([{,;<>|@*")
+
+
+def _home_allowed(text: str, start: int) -> bool:
+    """Whether a candidate starting at ``start`` begins a path rather than sitting inside a
+    URL or a longer name: it must follow the start of text, whitespace, a quote or a separator
+    such as ``=`` or ``:``, or be ``file://`` or a flag like ``-I``."""
+    if start == 0:
+        return True
+    c = text[start - 1]
+    if c in _HOME_BEFORE:
+        return True
+    if c == "/":
+        return text[:start].lower().endswith("file://")
+    if c.isalpha() and start >= 2 and text[start - 2] == "-":
+        return start == 2 or text[start - 3] in _HOME_BEFORE
+    return False
 # Key-like strings, built from pieces so this file holds no literal secret-shaped text.
 # The first form must hold a digit and an upper-case letter, so CSS class names and other
 # lower-case identifiers of the same shape are left alone.
@@ -117,7 +134,17 @@ def redact(text: str) -> tuple[str, int]:
     directories (``/home/<name>``, the macOS and Windows user folders) with ``~``."""
     text, a = _PEM.subn(REDACTED, text)
     text, b = _KEY.subn(REDACTED, text)
-    text, c = _HOME.subn(HOME_PLACEHOLDER, text)
+    hits = 0
+
+    def home(m: re.Match[str]) -> str:
+        nonlocal hits
+        if not _home_allowed(m.string, m.start()):
+            return m.group(0)
+        hits += 1
+        return HOME_PLACEHOLDER
+
+    text = _HOME.sub(home, text)
+    c = hits
     return text, a + b + c
 
 
