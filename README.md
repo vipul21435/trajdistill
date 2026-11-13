@@ -130,11 +130,13 @@ equal repositories) and `1/HHI` as an effective number of repositories, outcomes
 (median, nearest-rank 90th percentile, maximum), token totals and exact duplicates.
 
 **Samples.** `openai` writes `{"messages": [...]}` with `assistant.tool_calls` and `tool` replies carrying
-`tool_call_id` when the source has tool calls (ids are made up as `call_<step>_<k>` when missing); replies of
-text-command agents become `user` turns. `sharegpt` writes `{"conversations": [...]}` with the roles listed
-in the LLaMA-Factory data guide (`system`, `human`, `gpt`, `function_call`, `observation`), which places
-model and environment turns in alternating positions; a step with tool calls becomes one `function_call`
-turn. Every sample ends on a model turn. With `--granularity step` there is one sample per step t: the
+`tool_call_id` when the source has tool calls (ids are made up as `call_<step>_<k>` when missing). Tool
+replies are matched to their call by `tool_call_id` when the source gives one, else by position; user turns
+between steps stay `user` turns, and replies of text-command agents become `user` turns. `sharegpt` writes
+`{"conversations": [...]}` with the roles listed in the LLaMA-Factory data guide (`system`, `human`, `gpt`,
+`function_call`, `observation`), which places model and environment turns in alternating positions; a step
+with tool calls becomes one `function_call` turn, and a user turn after its replies joins the `observation`
+turn (counted as `user_turns_merged`). Every sample ends on a model turn. With `--granularity step` there is one sample per step t: the
 context up to t and step t's model turn as the target. Under `--context-budget` the oldest steps are dropped
 until the sample fits, and a short note (`[n earlier steps omitted]`) says so; a step that does not fit even
 alone is skipped and counted. A test checks on random trajectories that no sample exceeds its budget.
