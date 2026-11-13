@@ -14,10 +14,11 @@ Formats:
 
 from __future__ import annotations
 
+import gzip
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from .model import Step, ToolCall, Trajectory, content_hash
 
@@ -217,9 +218,15 @@ def from_swe_agent(data: dict[str, Any], instance_id: str) -> Trajectory:
     return _finish(traj, None)
 
 
+def _open_text(path: Path, mode: str = "r") -> IO[str]:
+    if path.suffix == ".gz":
+        return gzip.open(path, mode + "t", encoding="utf-8")
+    return path.open(mode, encoding="utf-8")
+
+
 def _iter_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Yield JSON objects from a JSONL file or from a JSON file holding a list."""
-    with path.open(encoding="utf-8") as fh:
+    """Yield JSON objects from a JSONL file or a JSON list, either one optionally gzipped."""
+    with _open_text(path) as fh:
         head = fh.read(1)
         while head and head.isspace():
             head = fh.read(1)
@@ -266,7 +273,7 @@ def read_path(path: str | Path, fmt: str = "auto") -> Iterator[Trajectory]:
         for f in sorted(p.rglob("*.traj")):
             yield _read_traj_file(f)
         return
-    if p.suffix == ".traj" or (fmt == "swe-agent" and p.suffix != ".jsonl"):
+    if p.suffix == ".traj" or (fmt == "swe-agent" and p.suffix not in (".jsonl", ".gz")):
         yield _read_traj_file(p)
         return
     for row in _iter_records(p):
@@ -283,11 +290,25 @@ def read_path(path: str | Path, fmt: str = "auto") -> Iterator[Trajectory]:
             yield from_swe_agent(row, instance_id=str(row.get("instance_id", "")))
 
 
-def write_native(trajs: Iterable[Trajectory], path: str | Path) -> int:
-    """Write trajectories as native JSONL; returns the number written."""
+def write_jsonl(records: Iterable[dict[str, Any]], path: str | Path) -> int:
+    """Write JSON objects one per line (gzipped when the name ends in ``.gz``)."""
+    p = Path(path)
     n = 0
-    with Path(path).open("w", encoding="utf-8") as fh:
-        for t in trajs:
-            fh.write(json.dumps(t.to_dict(), ensure_ascii=False) + "\n")
+    with _open_text(p, "w") as fh:
+        for r in records:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
             n += 1
     return n
+
+
+def iter_jsonl(path: str | Path) -> Iterator[dict[str, Any]]:
+    """Yield the JSON objects of a JSONL (or JSON list) file, gzipped or not."""
+    for row in _iter_records(Path(path)):
+        if not isinstance(row, dict):
+            raise FormatError(f"{path}: record is not an object")
+        yield row
+
+
+def write_native(trajs: Iterable[Trajectory], path: str | Path) -> int:
+    """Write trajectories as native JSONL; returns the number written."""
+    return write_jsonl((t.to_dict() for t in trajs), path)

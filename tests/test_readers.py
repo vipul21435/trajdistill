@@ -190,3 +190,17 @@ def test_native_roundtrip_fuzz() -> None:
         t = Trajectory(id="i", instance_id="o__r-1", steps=steps,
                        resolved=rng.choice([True, False, None]))
         assert Trajectory.from_dict(json.loads(json.dumps(t.to_dict()))) == t
+
+
+def test_gzip_input_and_output(tmp_path: Path) -> None:
+    from trajdistill.readers import iter_jsonl, write_jsonl
+
+    gz = tmp_path / "rows.jsonl.gz"
+    assert write_jsonl([NEBIUS_ROW, MESSAGES_ROW], gz) == 2
+    assert gz.read_bytes()[:2] == b"\x1f\x8b"
+    assert [t.source for t in read_path(gz)] == ["nebius", "messages"]
+    assert [r["instance_id"] for r in iter_jsonl(gz)] == ["acme__widgets-12", "acme__widgets-3"]
+    lst = tmp_path / "list.json"
+    lst.write_text("[1]", encoding="utf-8")
+    with pytest.raises(FormatError):
+        list(iter_jsonl(lst))
